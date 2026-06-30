@@ -1,0 +1,31 @@
+# Render Blueprint — point Render at this YAML to auto-create the service.
+#
+# Usage: dashboard.render.com/blueprints → New Blueprint Instance →
+#         connect repo Bobbywealth/bobby-meta-bot → Apply.
+#
+# Or: `curl -X POST https://api.render.com/v1/blueprints/...` if you have
+#     a valid API key with blueprints scope.
+
+services:
+  - type: web
+    name: bobby-meta-bot
+    runtime: node
+    plan: starter
+    region: oregon
+    branch: main
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_SECRET
+        sync: false
+        value: 3d55cc35f2262c31684b98e7c41ff22a
+      - key: META_APP_ID
+        sync: false
+        value: '1451073037030383'
+      - key: META_VERIFY_TOKEN
+        sync: false
+        value: bobby-meta-bot-verify-7c8f2d9a
+      - key: NODE_VERSION
+        value: '22.22.3'
