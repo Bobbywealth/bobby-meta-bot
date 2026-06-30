@@ -1,0 +1,23 @@
+# Netlify configuration for bobby-meta-bot
+#
+# - Uses Node adapter (serverless-http Express wrapper)
+# - All inbound traffic is rewritten to the single serverless function
+# - One function hosts every route (privacy, terms, deletion, webhook, etc.)
+
+[build]
+  command = "npm install"
+  functions = "netlify/functions"
+
+# Send every request to the api function. Netlify appends the original path
+# as req.url inside the handler, so Express routes (privacy, terms, etc.) work
+# unchanged.
+[[redirects]]
+  force = true
+  from = "/*"
+  to = "/.netlify/functions/api"
+  status = 200
+
+[functions]
+  # Bump default for the OpenAI request that's coming in the autoresponder.
+  # Free tier has a 10s timeout; Pro 26s.
+  node_bundler = "esbuild"
