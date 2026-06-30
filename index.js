@@ -109,10 +109,22 @@ function verifyWebhookSignature(rawBody, signatureHeader) {
 }
 
 // Capture raw body for webhook signature verification.
-app.use('/webhook/meta', express.json({
-  verify: (req, _res, buf) => { req.rawBody = buf.toString('utf8'); },
-  limit: '1mb',
-}));
+// serverless-http reconstructs the request stream in a way that breaks the
+// express.raw verify callback, so we read the original event body via the
+// apiGateway context that serverless-http attaches to req.
+app.use('/webhook/meta', (req, _res, next) => {
+  // serverless-http sets req.apiGateway = { event, context }.
+  const gw = req.apiGateway || {};
+  const event = gw.event || {};
+  const ctx = gw.context || {};
+  if (typeof ctx._rawBody === 'string') {
+    req.rawBody = ctx._rawBody;
+    if (!req.body || typeof req.body !== 'object') {
+      try { req.body = JSON.parse(req.rawBody); } catch (e) { req.body = {}; }
+    }
+  }
+  next();
+});
 
 // ---------------------------------------------------------------------------
 // Static HTML shell (shared)
@@ -489,6 +501,7 @@ async function processEntry(entry) {
 app.post('/webhook/meta', async (req, res) => {
   const signature = req.header('X-Hub-Signature-256');
   const rawBody = req.rawBody || '';
+  console.log('[webhook] POST received; rawBody length:', rawBody.length);
 
   if (!verifyWebhookSignature(rawBody, signature)) {
     console.warn('[webhook] signature mismatch');
@@ -502,13 +515,18 @@ app.post('/webhook/meta', async (req, res) => {
     entries: entries.length,
   });
 
-  // Acknowledge Meta IMMEDIATELY (must respond within ~5s).
-  res.sendStatus(200);
-
-  // Process asynchronously so the 200 fires before we hit the Send API.
+  // Acknowledge Meta and process in the same handler invocation.
+  // Netlify Functions terminate the runtime after the handler resolves, so
+  // post-response work dies if we don't await it. The Send API call is fast
+  // (~1s) so the response still lands well within Meta's 5s window.
   for (const entry of entries) {
-    processEntry(entry).catch((err) => console.error('[processEntry]', err));
+    try {
+      await processEntry(entry);
+    } catch (err) {
+      console.error('[processEntry]', err);
+    }
   }
+  res.sendStatus(200);
 });
 
 // ---------------------------------------------------------------------------
