@@ -455,9 +455,15 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
-  console.log(`[bobby-meta-bot] listening on :${PORT}`);
-  console.log(`  APP_SECRET set:        ${Boolean(APP_SECRET)}`);
-  console.log(`  META_APP_ID set:       ${Boolean(META_APP_ID)}`);
-  console.log(`  META_VERIFY_TOKEN set: ${Boolean(process.env.META_VERIFY_TOKEN)}`);
-});
+// When run directly (Render / local dev): start a long-lived HTTP server.
+// When imported by a serverless wrapper (Netlify function): just export the app.
+module.exports = app;
+
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`[bobby-meta-bot] listening on :${PORT}`);
+    console.log(`  APP_SECRET set:        ${Boolean(APP_SECRET)}`);
+    console.log(`  META_APP_ID set:       ${Boolean(META_APP_ID)}`);
+    console.log(`  META_VERIFY_TOKEN set: ${Boolean(process.env.META_VERIFY_TOKEN)}`);
+  });
+}
