@@ -31,6 +31,8 @@ const PORT = Number(process.env.PORT) || 10000;
 const APP_SECRET = process.env.APP_SECRET || '';
 const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || 'bobby-meta-bot-verify';
 const META_APP_ID = process.env.META_APP_ID || '';
+const META_PAGE_ID = process.env.META_PAGE_ID || '';
+const PAGE_ACCESS_TOKEN = process.env.META_PAGE_ACCESS_TOKEN || '';
 
 const app = express();
 
@@ -424,8 +426,67 @@ app.get('/webhook/meta', (req, res) => {
   res.sendStatus(403);
 });
 
+// ---------------------------------------------------------------------------
+// Helpers — Meta Send API
+// ---------------------------------------------------------------------------
+
+/**
+ * Send a Messenger text reply via the Send API.
+ * https://developers.facebook.com/docs/messenger-platform/send-messages
+ */
+async function sendMessengerText(psid, text) {
+  if (!PAGE_ACCESS_TOKEN) {
+    console.warn('[send] META_PAGE_ACCESS_TOKEN not set — cannot reply');
+    return { ok: false, reason: 'no-token' };
+  }
+  try {
+    const url = `https://graph.facebook.com/v22.0/me/messages`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${PAGE_ACCESS_TOKEN}`,
+      },
+      body: JSON.stringify({
+        recipient: { id: psid },
+        message: { text },
+      }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      console.error('[send] error', resp.status, JSON.stringify(data).slice(0, 300));
+      return { ok: false, status: resp.status, data };
+    }
+    console.log('[send] ok message_id=', data.message_id);
+    return { ok: true, message_id: data.message_id };
+  } catch (err) {
+    console.error('[send] exception', err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Process a single webhook entry — extract messages and reply with a
+ * placeholder echo. Will be replaced by an AI prompt in the next iteration.
+ */
+async function processEntry(entry) {
+  // entry.messaging[] is the Messenger event array
+  const events = entry.messaging || [];
+  for (const ev of events) {
+    if (ev.message && !ev.message.is_echo) {
+      const psid = ev.sender && ev.sender.id;
+      const text = (ev.message.text || '').slice(0, 200);
+      if (!psid) continue;
+      console.log(`[inbound] psid=${psid} text=${JSON.stringify(text)}`);
+      const reply = `👋 Bobby DM Bot received: "${text}". (Auto-reply — AI prompt wires up next.)`;
+      await sendMessengerText(psid, reply);
+    }
+    // Future: postback handling (button taps), delivery/read receipts, etc.
+  }
+}
+
 // Event receiver.
-app.post('/webhook/meta', (req, res) => {
+app.post('/webhook/meta', async (req, res) => {
   const signature = req.header('X-Hub-Signature-256');
   const rawBody = req.rawBody || '';
 
@@ -435,14 +496,19 @@ app.post('/webhook/meta', (req, res) => {
   }
 
   const body = req.body;
+  const entries = (body && body.entry) || [];
   console.log('[webhook] event', {
     object: body && body.object,
-    entries: body && body.entry ? body.entry.length : 0,
+    entries: entries.length,
   });
 
-  // TODO: route by entry[].messaging / entry[].changes into handlers.
-  // For now, we just log.
+  // Acknowledge Meta IMMEDIATELY (must respond within ~5s).
   res.sendStatus(200);
+
+  // Process asynchronously so the 200 fires before we hit the Send API.
+  for (const entry of entries) {
+    processEntry(entry).catch((err) => console.error('[processEntry]', err));
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -462,8 +528,10 @@ module.exports = app;
 if (require.main === module) {
   app.listen(PORT, () => {
     console.log(`[bobby-meta-bot] listening on :${PORT}`);
-    console.log(`  APP_SECRET set:        ${Boolean(APP_SECRET)}`);
-    console.log(`  META_APP_ID set:       ${Boolean(META_APP_ID)}`);
-    console.log(`  META_VERIFY_TOKEN set: ${Boolean(process.env.META_VERIFY_TOKEN)}`);
+    console.log(`  APP_SECRET set:            ${Boolean(APP_SECRET)}`);
+    console.log(`  META_APP_ID set:           ${Boolean(META_APP_ID)}`);
+    console.log(`  META_VERIFY_TOKEN set:     ${Boolean(process.env.META_VERIFY_TOKEN)}`);
+    console.log(`  META_PAGE_ID set:          ${Boolean(META_PAGE_ID)}`);
+    console.log(`  META_PAGE_ACCESS_TOKEN set:${Boolean(PAGE_ACCESS_TOKEN)}`);
   });
 }

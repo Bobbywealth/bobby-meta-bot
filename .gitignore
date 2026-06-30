@@ -6,3 +6,6 @@ node_modules/
 dist/
 build/
 .render/
+
+# Local Netlify folder
+.netlify
